@@ -4,6 +4,16 @@
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+	  <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+	  <PackageId>MindMapper</PackageId>
+	  <Version>1.1.0</Version>
+	  <Authors>AmirHossein Kaveh</Authors>
+	  <Company>ITSA</Company>
+	  <Description>Custom mapper of object</Description>
+	  <PackageTags>autoMapping reverseMapping</PackageTags>
+	  <RepositoryUrl>https://github.com/yourrepo</RepositoryUrl>
+	  <PackageLicenseExpression>MIT</PackageLicenseExpression>
+	  <PackageProjectUrl>https://github.com/yourrepo/project</PackageProjectUrl>
   </PropertyGroup>
 
 </Project>

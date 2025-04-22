@@ -1,6 +1,6 @@
 ﻿using System.Linq.Expressions;
 
-namespace Mapator
+namespace MindMapper
 {
     public class CustomMappingConfig<TSource, TDestination>
     {

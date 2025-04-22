@@ -1,4 +1,4 @@
-﻿namespace Mapator
+﻿namespace MindMapper
 {
     public class CustomMappingProfile
     {
