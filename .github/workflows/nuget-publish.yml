@@ -1,0 +1,29 @@
+name: NuGet Package Publish
+
+on:
+  push:
+    branches: [ main ] # Change to your main branch name
+    tags: [ 'v*.*.*' ] # Publish only when version tags are pushed
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: '8.0.x' # Match your target framework
+    
+    - name: Restore dependencies
+      run: dotnet restore
+      
+    - name: Build
+      run: dotnet build --configuration Release --no-restore
+      
+    - name: Pack
+      run: dotnet pack --configuration Release --no-build --output nupkg
+      
+    - name: Publish to NuGet
+      run: dotnet nuget push ./nupkg/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
