@@ -23,21 +23,6 @@
             return (TDestination)mappingFunc(source);
         }
 
-        public static List<TDestination> Map<TSource, TDestination>(IEnumerable<TSource> sources)
-        where TDestination : new()
-        {
-            if (!_profile.TryGetMappingAction<TSource, TDestination>(out var mapAction))
-                throw new InvalidOperationException($"No mapping found from {typeof(TSource)} to {typeof(TDestination)}");
-
-            var result = new List<TDestination>();
-            foreach (var source in sources)
-            {
-                var dest = new TDestination();
-                mapAction(source, dest);
-                result.Add(dest);
-            }
-            return result;
-        }
         public static List<TDestination> Map<TDestination>(IEnumerable<object> sources)
             where TDestination : new()
         {
