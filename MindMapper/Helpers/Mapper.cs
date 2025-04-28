@@ -2,9 +2,9 @@
 {
     public static class Mapper
     {
-        private static CustomMappingProfile _profile;
+        private static MappingProfile _profile;
 
-        public static void Initialize(CustomMappingProfile profile)
+        public static void Initialize(MappingProfile profile)
         {
             _profile = profile;
         }
@@ -16,18 +16,11 @@
 
             var sourceType = source.GetType();
             var destinationType = typeof(TDestination);
-            var mappings = _profile.GetMappings(sourceType, destinationType);
 
-            if (mappings == null || mappings.Count == 0)
+            if (!_profile.TryGetMapping(sourceType, destinationType, out var mappingFunc))
                 throw new InvalidOperationException($"No mappings found from {sourceType} to {destinationType}");
 
-            var destination = new TDestination();
-            foreach (var map in mappings)
-            {
-                map(source, destination);
-            }
-
-            return destination;
+            return (TDestination)mappingFunc(source);
         }
 
         public static List<TDestination> Map<TDestination>(IEnumerable<object> sources)
@@ -41,25 +34,17 @@
             return list;
         }
 
-
         public static TDestination Map<TSource, TDestination>(TSource source, TDestination destination)
         {
             if (source == null || destination == null)
                 throw new ArgumentNullException("Source or destination cannot be null.");
 
-            var key = (typeof(TSource), typeof(TDestination));
-
-            if (!_profile.TryGetMapping(key, out var propertyMappings))
+            if (!_profile.TryGetMappingAction<TSource, TDestination>(out var mappingAction))
                 throw new InvalidOperationException($"No mapping found from {typeof(TSource)} to {typeof(TDestination)}");
 
-            foreach (var map in propertyMappings)
-            {
-                map(source!, destination!);
-            }
-
+            mappingAction(source, destination);
             return destination;
         }
-
-
     }
+
 }

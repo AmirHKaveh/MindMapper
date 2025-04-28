@@ -1,143 +1,69 @@
 ﻿namespace MindMapper
 {
-    public class CustomMappingProfile
+    public class MappingProfile
     {
-        private readonly Dictionary<(Type source, Type destination), List<Action<object, object>>> _mappings
-            = new();
+        private readonly Dictionary<(Type source, Type destination), Func<object, object>> _mappingFuncs = new();
+        private readonly Dictionary<(Type source, Type destination), Delegate> _mappingActions = new();
 
-        public CustomMappingConfig<TSource, TDestination> CreateMap<TSource, TDestination>(Action<CustomMappingConfig<TSource, TDestination>> config = null)
+        public MappingConfig<TSource, TDestination> CreateMap<TSource, TDestination>(Action<MappingConfig<TSource, TDestination>> config = null)
         {
-            var mapConfig = new CustomMappingConfig<TSource, TDestination>(this);
+            var mapConfig = new MappingConfig<TSource, TDestination>(this);
 
-            // Apply user-defined config (set ignore list etc.)
             config?.Invoke(mapConfig);
 
-            // Auto-map forward
-            ApplyAutoMap(mapConfig);
+            var (mappingFunc, mappingAction) = mapConfig.CompileMappings();
 
-            // Register forward mapping
             var key = (typeof(TSource), typeof(TDestination));
-            _mappings[key] = mapConfig.PropertyMappings;
+            _mappingFuncs[key] = mappingFunc;
+            _mappingActions[key] = mappingAction;
 
             return mapConfig;
         }
 
-        public void CreateReverseMap<TSource, TDestination>(CustomMappingConfig<TSource, TDestination> originalConfig)
+        public void CreateReverseMap<TSource, TDestination>(MappingConfig<TSource, TDestination> originalConfig)
         {
-            var reverseConfig = new CustomMappingConfig<TDestination, TSource>(this);
+            var reverseConfig = new MappingConfig<TDestination, TSource>(this);
 
-            // Copy ignored properties from original config to reverse config
             foreach (var ignoredProp in originalConfig.IgnoredProperties)
             {
                 reverseConfig.IgnoredProperties.Add(ignoredProp);
             }
 
-            // Auto-map in reverse direction
-            ApplyReverseAutoMap(originalConfig, reverseConfig);
+            var (mappingFunc, mappingAction) = reverseConfig.CompileMappings();
 
-            // Register reverse mapping
             var key = (typeof(TDestination), typeof(TSource));
-            _mappings[key] = reverseConfig.PropertyMappings;
+            _mappingFuncs[key] = mappingFunc;
+            _mappingActions[key] = mappingAction;
         }
 
-        public List<Action<object, object>> GetMappings(Type sourceType, Type destType)
+        public bool TryGetMapping(Type sourceType, Type destType, out Func<object, object> mappingFunc)
         {
             var key = (sourceType, destType);
-            return _mappings.TryGetValue(key, out var mappings) ? mappings : new List<Action<object, object>>();
+            return _mappingFuncs.TryGetValue(key, out mappingFunc);
         }
 
-        private void ApplyAutoMap<TSource, TDestination>(CustomMappingConfig<TSource, TDestination> mapConfig)
+        public bool TryGetMappingAction<TSource, TDestination>(out Action<TSource, TDestination> mappingAction)
         {
-            var sourceProps = typeof(TSource).GetProperties();
-            var destProps = typeof(TDestination).GetProperties();
-
-            foreach (var destProp in destProps)
+            var key = (typeof(TSource), typeof(TDestination));
+            if (_mappingActions.TryGetValue(key, out var action))
             {
-                if (mapConfig.IgnoredProperties.Contains(destProp.Name))
-                    continue;
-
-                var srcProp = sourceProps.FirstOrDefault(p =>
-                    p.Name == destProp.Name && p.CanRead && destProp.CanWrite);
-
-                if (srcProp == null) continue;
-
-                if (srcProp.PropertyType == destProp.PropertyType)
-                {
-                    mapConfig.PropertyMappings.Add((src, dest) =>
-                    {
-                        var val = srcProp.GetValue(src);
-                        destProp.SetValue(dest, val);
-                    });
-                }
-                else if (srcProp.PropertyType.IsEnum && destProp.PropertyType == typeof(string))
-                {
-                    mapConfig.PropertyMappings.Add((src, dest) =>
-                    {
-                        var val = srcProp.GetValue(src);
-                        destProp.SetValue(dest, val?.ToString());
-                    });
-                }
-                else if (srcProp.PropertyType == typeof(string) && destProp.PropertyType.IsEnum)
-                {
-                    mapConfig.PropertyMappings.Add((src, dest) =>
-                    {
-                        var val = srcProp.GetValue(src) as string;
-                        if (Enum.TryParse(destProp.PropertyType, val, out var parsed))
-                            destProp.SetValue(dest, parsed);
-                    });
-                }
+                mappingAction = (Action<TSource, TDestination>)action;
+                return true;
             }
+            mappingAction = null;
+            return false;
         }
 
-        private void ApplyReverseAutoMap<TSource, TDestination>(
-        CustomMappingConfig<TSource, TDestination> originalConfig,
-        CustomMappingConfig<TDestination, TSource> reverseConfig)
+        internal bool TryGetMappingAction(Type sourceType, Type destType, out Action<object, object> mappingAction)
         {
-            var sourceProps = typeof(TSource).GetProperties();
-            var destProps = typeof(TDestination).GetProperties();
-
-            foreach (var srcProp in sourceProps)
+            var key = (sourceType, destType);
+            if (_mappingActions.TryGetValue(key, out var action))
             {
-                if (originalConfig.IgnoredProperties.Contains(srcProp.Name))
-                    continue;
-
-                var destProp = destProps.FirstOrDefault(p =>
-                    p.Name == srcProp.Name && p.CanRead && srcProp.CanWrite);
-
-                if (destProp == null) continue;
-
-                if (destProp.PropertyType == srcProp.PropertyType)
-                {
-                    reverseConfig.PropertyMappings.Add((src, dest) =>
-                    {
-                        var val = destProp.GetValue(src);
-                        srcProp.SetValue(dest, val);
-                    });
-                }
-                else if (destProp.PropertyType.IsEnum && srcProp.PropertyType == typeof(string))
-                {
-                    reverseConfig.PropertyMappings.Add((src, dest) =>
-                    {
-                        var val = destProp.GetValue(src);
-                        srcProp.SetValue(dest, val?.ToString());
-                    });
-                }
-                else if (destProp.PropertyType == typeof(string) && srcProp.PropertyType.IsEnum)
-                {
-                    reverseConfig.PropertyMappings.Add((src, dest) =>
-                    {
-                        var val = destProp.GetValue(src) as string;
-                        if (Enum.TryParse(srcProp.PropertyType, val, out var parsed))
-                            srcProp.SetValue(dest, parsed);
-                    });
-                }
+                mappingAction = (src, dest) => ((Delegate)action).DynamicInvoke(src, dest);
+                return true;
             }
+            mappingAction = null;
+            return false;
         }
-
-        public bool TryGetMapping((Type SourceType, Type DestinationType) key, out List<Action<object, object>> mappings)
-        {
-            return _mappings.TryGetValue(key, out mappings);
-        }
-
     }
 }
