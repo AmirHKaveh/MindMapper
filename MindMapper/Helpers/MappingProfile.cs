@@ -1,67 +1,50 @@
-﻿namespace MindMapper
+﻿using MindMapper;
+
+using System.Collections.Concurrent;
+
+namespace ConsoleApp2
 {
     public class MappingProfile
     {
-        private readonly Dictionary<(Type source, Type destination), Func<object, object>> _mappingFuncs = new();
-        private readonly Dictionary<(Type source, Type destination), Delegate> _mappingActions = new();
+        public readonly Dictionary<(Type source, Type destination), Action<object, object>> _mappings = new();
+        private readonly Dictionary<(Type source, Type destination), Action<object, object>> _typedMappings = new();
+        private readonly ConcurrentDictionary<(Type, Type), Delegate> _mappingActions = new();
 
         public MappingConfig<TSource, TDestination> CreateMap<TSource, TDestination>(Action<MappingConfig<TSource, TDestination>> config = null)
         {
             var mapConfig = new MappingConfig<TSource, TDestination>(this);
-
             config?.Invoke(mapConfig);
 
-            var (mappingFunc, mappingAction) = mapConfig.CompileMappings();
+            // Compile the mapping actions
+            var mappingAction = mapConfig.CompileMappingAction();
+            var untypedAction = (Action<object, object>)((src, dest) => mappingAction((TSource)src, (TDestination)dest));
 
+            // Register both typed and untyped versions
             var key = (typeof(TSource), typeof(TDestination));
-            _mappingFuncs[key] = mappingFunc;
-            _mappingActions[key] = mappingAction;
+            _mappings[key] = untypedAction;
+            _typedMappings[key] = untypedAction;
 
             return mapConfig;
         }
 
-        public void CreateReverseMap<TSource, TDestination>(MappingConfig<TSource, TDestination> originalConfig)
-        {
-            var reverseConfig = new MappingConfig<TDestination, TSource>(this);
-
-            foreach (var ignoredProp in originalConfig.IgnoredProperties)
-            {
-                reverseConfig.IgnoredProperties.Add(ignoredProp);
-            }
-
-            var (mappingFunc, mappingAction) = reverseConfig.CompileMappings();
-
-            var key = (typeof(TDestination), typeof(TSource));
-            _mappingFuncs[key] = mappingFunc;
-            _mappingActions[key] = mappingAction;
-        }
-
-        public bool TryGetMapping(Type sourceType, Type destType, out Func<object, object> mappingFunc)
+        public bool TryGetMapping(Type sourceType, Type destType, out Action<object, object> mappingAction)
         {
             var key = (sourceType, destType);
-            return _mappingFuncs.TryGetValue(key, out mappingFunc);
+            return _mappings.TryGetValue(key, out mappingAction);
         }
-
-        public bool TryGetMappingAction<TSource, TDestination>(out Action<TSource, TDestination> mappingAction)
+        public bool TryGetMappingAction(Type sourceType, Type destType, out Delegate mappingAction)
+        {
+            return _mappingActions.TryGetValue((sourceType, destType), out mappingAction);
+        }
+        public bool TryGetMapping<TSource, TDestination>(out Action<TSource, TDestination> mappingAction)
         {
             var key = (typeof(TSource), typeof(TDestination));
-            if (_mappingActions.TryGetValue(key, out var action))
+            if (_typedMappings.TryGetValue(key, out var untypedAction))
             {
-                mappingAction = (Action<TSource, TDestination>)action;
+                mappingAction = (src, dest) => untypedAction(src, dest);
                 return true;
             }
-            mappingAction = null;
-            return false;
-        }
 
-        internal bool TryGetMappingAction(Type sourceType, Type destType, out Action<object, object> mappingAction)
-        {
-            var key = (sourceType, destType);
-            if (_mappingActions.TryGetValue(key, out var action))
-            {
-                mappingAction = (src, dest) => ((Delegate)action).DynamicInvoke(src, dest);
-                return true;
-            }
             mappingAction = null;
             return false;
         }
