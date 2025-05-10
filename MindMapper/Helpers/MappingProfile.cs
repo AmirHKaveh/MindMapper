@@ -1,10 +1,8 @@
-﻿using MindMapper;
+﻿using System.Collections.Concurrent;
 
-using System.Collections.Concurrent;
-
-namespace ConsoleApp2
+namespace MindMapper
 {
-    public class MappingProfile
+    public class MappingProfile:IMappingProfile
     {
         public readonly Dictionary<(Type source, Type destination), Action<object, object>> _mappings = new();
         private readonly Dictionary<(Type source, Type destination), Action<object, object>> _typedMappings = new();

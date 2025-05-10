@@ -1,23 +1,19 @@
-﻿using ConsoleApp2;
-
-using System.Collections.Concurrent;
-using System.Linq.Expressions;
-using System.Reflection;
+﻿using System.Collections.Concurrent;
 
 namespace MindMapper
 {
 
-    public static class Mapper
+    public class Mapper : IMapper
     {
-        private static MappingProfile _profile;
-        private static readonly ConcurrentDictionary<TypePair, Delegate> _mappingCache = new();
+        private readonly IMappingProfile _profile;
+        private readonly ConcurrentDictionary<TypePair, Delegate> _mappingCache = new();
 
-        public static void Initialize(MappingProfile profile)
+        public Mapper(IMappingProfile profile)
         {
             _profile = profile ?? throw new ArgumentNullException(nameof(profile));
         }
 
-        public static TDestination Map<TDestination>(object source) where TDestination : new()
+        public TDestination Map<TDestination>(object source) where TDestination : new()
         {
             if (source == null) return default;
 
@@ -38,7 +34,7 @@ namespace MindMapper
             return destination;
         }
 
-        public static List<TDestination> Map<TDestination>(IEnumerable<object> sources) where TDestination : new()
+        public List<TDestination> Map<TDestination>(IEnumerable<object> sources) where TDestination : new()
         {
             if (sources == null) return new List<TDestination>();
 
@@ -54,7 +50,7 @@ namespace MindMapper
             return list;
         }
 
-        public static List<TDestination> Map<TSource, TDestination>(IEnumerable<TSource> sources)
+        public List<TDestination> Map<TSource, TDestination>(IEnumerable<TSource> sources)
        where TDestination : new()
         {
             if (sources == null)
@@ -79,7 +75,7 @@ namespace MindMapper
             return list;
         }
 
-        private static Action<TSource, TDestination> GetCachedMappingFunction<TSource, TDestination>()
+        private Action<TSource, TDestination> GetCachedMappingFunction<TSource, TDestination>()
         {
             if (!_profile.TryGetMapping<TSource, TDestination>(out var action))
             {
@@ -89,7 +85,7 @@ namespace MindMapper
         }
 
 
-        public static TDestination Map<TSource, TDestination>(TSource source, TDestination destination)
+        public TDestination Map<TSource, TDestination>(TSource source, TDestination destination)
         {
             if (source == null) throw new ArgumentNullException(nameof(source));
             if (destination == null) throw new ArgumentNullException(nameof(destination));
