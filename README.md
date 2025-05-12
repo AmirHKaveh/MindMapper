@@ -23,10 +23,13 @@ Or via Package Manager:
 
 
 ## Basic Usage
-1. Object Mapping
-   
+**Object Mapping**
+
+   Config of CustomMappingProfile file:
    ```
-    public static CustomMappingProfile Register()
+   public static class AppMappingProfile
+   {
+     public static CustomMappingProfile ConfigureMappings()
      {
          var profile = new CustomMappingProfile();
         
@@ -34,14 +37,32 @@ Or via Package Manager:
          {
              x.ForMember((dest, val) => dest.CreateDate = val, src => src.CreateDate.ToShamsi());
          });
+      }
    }
+   ```
 
+DI config in program.cs file:
 
-**2. Object Reverse Mapping**
+```
+ var profile = AppMappingProfile.ConfigureMappings();
+ builder.Services.AddSingleton<IMappingProfile>(profile);
+ builder.Services.AddSingleton<IMapper, Mapper>();
+```
+Use in contoller/page:
+
+```
+ private readonly IMapper _mapper;
+ public ProductController(IMapper mapper)
+ {
+     _mapper = mapper;
+ }
+```
+
+**Object Reverse Mapping**
    
 ```profile.CreateMap<RequestModel, Model>().ReverseMap();```
 
-**4. Ignoring Properties**
+**Ignoring Properties**
    
 ``` profile.CreateMap<Model,RequestModel>().Ignore(x=>x.Name);```
                
