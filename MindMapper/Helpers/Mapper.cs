@@ -1,4 +1,5 @@
 ﻿using System.Collections.Concurrent;
+using System.Reflection;
 
 namespace MindMapper
 {
@@ -22,16 +23,26 @@ namespace MindMapper
 
             var mappingAction = _mappingCache.GetOrAdd(typePair, pair =>
             {
-                if (!_profile.TryGetMapping(pair.SourceType, pair.DestinationType, out Action<object, object> action))
-                {
-                    throw new InvalidOperationException($"No mappings found from {pair.SourceType} to {pair.DestinationType}");
-                }
-                return action;
+                // Create a strongly-typed generic method via reflection
+                var method = GetType().GetMethod(nameof(CreateMappingDelegate),
+                    BindingFlags.NonPublic | BindingFlags.Instance)
+                    .MakeGenericMethod(pair.SourceType, pair.DestinationType);
+
+                return (Delegate)method.Invoke(this, null);
             });
 
             var destination = new TDestination();
-            ((Action<object, object>)mappingAction)(source, destination);
+            mappingAction.DynamicInvoke(source, destination);
             return destination;
+        }
+
+        private Action<TSource, TDestination> CreateMappingDelegate<TSource, TDestination>()
+        {
+            if (!_profile.TryGetMapping<TSource, TDestination>(out var action))
+            {
+                throw new InvalidOperationException($"No mapping found from {typeof(TSource)} to {typeof(TDestination)}");
+            }
+            return action;
         }
 
         public List<TDestination> Map<TDestination>(IEnumerable<object> sources) where TDestination : new()
@@ -51,7 +62,7 @@ namespace MindMapper
         }
 
         public List<TDestination> Map<TSource, TDestination>(IEnumerable<TSource> sources)
-       where TDestination : new()
+            where TDestination : new()
         {
             if (sources == null)
                 return new List<TDestination>();
@@ -77,31 +88,27 @@ namespace MindMapper
 
         private Action<TSource, TDestination> GetCachedMappingFunction<TSource, TDestination>()
         {
-            if (!_profile.TryGetMapping<TSource, TDestination>(out var action))
-            {
-                throw new InvalidOperationException($"No mapping found from {typeof(TSource)} to {typeof(TDestination)}");
-            }
-            return action;
-        }
-
-
-        public TDestination Map<TSource, TDestination>(TSource source, TDestination destination)
-        {
-            if (source == null) throw new ArgumentNullException(nameof(source));
-            if (destination == null) throw new ArgumentNullException(nameof(destination));
-
             var typePair = new TypePair(typeof(TSource), typeof(TDestination));
 
             var mappingAction = _mappingCache.GetOrAdd(typePair, pair =>
             {
-                if (!_profile.TryGetMapping<TSource, TDestination>(out Action<TSource, TDestination> action))
+                if (!_profile.TryGetMapping<TSource, TDestination>(out var action))
                 {
                     throw new InvalidOperationException($"No mapping found from {pair.SourceType} to {pair.DestinationType}");
                 }
                 return action;
             });
 
-            ((Action<TSource, TDestination>)mappingAction)(source, destination);
+            return (Action<TSource, TDestination>)mappingAction;
+        }
+
+        public TDestination Map<TSource, TDestination>(TSource source, TDestination destination)
+        {
+            if (source == null) throw new ArgumentNullException(nameof(source));
+            if (destination == null) throw new ArgumentNullException(nameof(destination));
+
+            var mappingAction = GetCachedMappingFunction<TSource, TDestination>();
+            mappingAction(source, destination);
             return destination;
         }
 
