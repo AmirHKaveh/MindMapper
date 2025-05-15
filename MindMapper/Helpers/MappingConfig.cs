@@ -13,24 +13,28 @@ namespace MindMapper
         {
             _profile = profile;
             // Automatically apply AutoMap when config is created
-            //AutoMap();
+            AutoMap();
         }
 
-        public void ApplyAutoMap()
+        public void AutoMap()
         {
-            if (_autoMapCalled) return;
-
             var sourceType = typeof(TSource);
             var destinationType = typeof(TDestination);
 
+            // Get all readable properties from source
             var sourceProperties = sourceType.GetProperties(BindingFlags.Public | BindingFlags.Instance)
                 .Where(p => p.CanRead);
 
+
+            // Get all writable properties from destination (excluding ignored ones)
             var destinationProperties = destinationType.GetProperties(BindingFlags.Public | BindingFlags.Instance)
                 .Where(p => p.CanWrite && !_ignoredProperties.Contains(p.Name));
 
             foreach (var destProp in destinationProperties)
             {
+                if (_ignoredProperties.Contains(destProp.Name))
+                    continue;
+
                 var srcProp = sourceProperties.FirstOrDefault(p =>
                     p.Name == destProp.Name &&
                     p.PropertyType == destProp.PropertyType);
@@ -41,6 +45,7 @@ namespace MindMapper
                     continue;
                 }
 
+                // Handle enum-string conversions
                 if (srcProp?.PropertyType.IsEnum == true && destProp.PropertyType == typeof(string))
                 {
                     AddEnumToStringMapping(srcProp, destProp);
@@ -51,7 +56,6 @@ namespace MindMapper
                 }
             }
 
-            _autoMapCalled = true;
         }
 
         private void AddPropertyMapping(PropertyInfo srcProp, PropertyInfo destProp)
