@@ -8,24 +8,24 @@ namespace MindMapper
         private readonly MappingProfile _profile;
         private readonly List<Action<TSource, TDestination>> _propertyMappings = new();
         private readonly HashSet<string> _ignoredProperties = new();
-
+        private bool _autoMapCalled = false;
         public MappingConfig(MappingProfile profile)
         {
             _profile = profile;
             // Automatically apply AutoMap when config is created
-            AutoMap();
+            //AutoMap();
         }
 
-        public void AutoMap()
+        public void ApplyAutoMap()
         {
+            if (_autoMapCalled) return;
+
             var sourceType = typeof(TSource);
             var destinationType = typeof(TDestination);
 
-            // Get all readable properties from source
             var sourceProperties = sourceType.GetProperties(BindingFlags.Public | BindingFlags.Instance)
                 .Where(p => p.CanRead);
 
-            // Get all writable properties from destination
             var destinationProperties = destinationType.GetProperties(BindingFlags.Public | BindingFlags.Instance)
                 .Where(p => p.CanWrite && !_ignoredProperties.Contains(p.Name));
 
@@ -41,7 +41,6 @@ namespace MindMapper
                     continue;
                 }
 
-                // Handle enum-string conversions
                 if (srcProp?.PropertyType.IsEnum == true && destProp.PropertyType == typeof(string))
                 {
                     AddEnumToStringMapping(srcProp, destProp);
@@ -51,6 +50,8 @@ namespace MindMapper
                     AddStringToEnumMapping(srcProp, destProp);
                 }
             }
+
+            _autoMapCalled = true;
         }
 
         private void AddPropertyMapping(PropertyInfo srcProp, PropertyInfo destProp)
@@ -142,10 +143,17 @@ namespace MindMapper
                 reverseConfig._propertyMappings.Add((dest, src) => mapping(src, dest));
             }
 
-            // Register the reverse mapping
-            var reverseKey = (typeof(TDestination), typeof(TSource));
+
+            // Compile the reverse mapping action
             var reverseAction = reverseConfig.CompileMappingAction();
-            _profile._mappings[reverseKey] = (src, dest) => reverseAction((TDestination)src, (TSource)dest);
+
+            // Register in all relevant dictionaries
+            var reverseKey = (typeof(TDestination), typeof(TSource));
+            var untypedReverseAction = (Action<object, object>)((src, dest) => reverseAction((TDestination)src, (TSource)dest));
+
+            _profile._mappings[reverseKey] = untypedReverseAction;
+            _profile._typedMappings[reverseKey] = untypedReverseAction;
+            _profile._mappingActions[reverseKey] = reverseAction;
 
             return this;
         }
@@ -155,19 +163,26 @@ namespace MindMapper
             _propertyMappings.Add((src, dest) => setDest(dest, getSource(src)));
         }
 
-        public MappingConfig<TSource, TDestination> Ignore<TMember>(Expression<Func<TDestination, TMember>> destSelector)
+        public MappingConfig<TSource, TDestination> Ignore<TProperty>(Expression<Func<TDestination, TProperty>> propertyExpression)
         {
-            if (destSelector.Body is MemberExpression memberExpr)
+            if (propertyExpression == null)
+                throw new ArgumentNullException(nameof(propertyExpression));
+
+            if (propertyExpression.Body is MemberExpression memberExpression)
             {
-                _ignoredProperties.Add(memberExpr.Member.Name);
+                _ignoredProperties.Add(memberExpression.Member.Name);
             }
-            else if (destSelector.Body is UnaryExpression unary && unary.Operand is MemberExpression unaryMember)
+            else if (propertyExpression.Body is UnaryExpression unaryExpression &&
+                    unaryExpression.Operand is MemberExpression unaryMemberExpression)
             {
-                _ignoredProperties.Add(unaryMember.Member.Name);
+                // Handle conversions like x => x.SomeProperty (which becomes Convert(x.SomeProperty))
+                _ignoredProperties.Add(unaryMemberExpression.Member.Name);
             }
             else
             {
-                throw new InvalidOperationException("Invalid expression passed to Ignore.");
+                throw new ArgumentException(
+                    "The expression must be a simple property access expression like 'x => x.PropertyName'",
+                    nameof(propertyExpression));
             }
 
             return this;

@@ -5,22 +5,28 @@ namespace MindMapper
     public class MappingProfile:IMappingProfile
     {
         public readonly Dictionary<(Type source, Type destination), Action<object, object>> _mappings = new();
-        private readonly Dictionary<(Type source, Type destination), Action<object, object>> _typedMappings = new();
-        private readonly ConcurrentDictionary<(Type, Type), Delegate> _mappingActions = new();
+        public readonly Dictionary<(Type source, Type destination), Action<object, object>> _typedMappings = new();
+        public readonly ConcurrentDictionary<(Type, Type), Delegate> _mappingActions = new();
 
-        public MappingConfig<TSource, TDestination> CreateMap<TSource, TDestination>(Action<MappingConfig<TSource, TDestination>> config = null)
+        public MappingConfig<TSource, TDestination> CreateMap<TSource, TDestination>(
+     Action<MappingConfig<TSource, TDestination>> config = null)
         {
             var mapConfig = new MappingConfig<TSource, TDestination>(this);
+
+            // 1. First apply all configurations (including Ignore calls)
             config?.Invoke(mapConfig);
 
-            // Compile the mapping actions
+            // 2. Then apply AutoMap (which will respect ignored properties)
+            mapConfig.ApplyAutoMap();
+
+            // 3. Compile the final mapping
             var mappingAction = mapConfig.CompileMappingAction();
             var untypedAction = (Action<object, object>)((src, dest) => mappingAction((TSource)src, (TDestination)dest));
 
-            // Register both typed and untyped versions
             var key = (typeof(TSource), typeof(TDestination));
             _mappings[key] = untypedAction;
             _typedMappings[key] = untypedAction;
+            _mappingActions[key] = mappingAction;
 
             return mapConfig;
         }
