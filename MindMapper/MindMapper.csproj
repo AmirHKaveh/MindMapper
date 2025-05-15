@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
 	  <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
 	  <PackageId>MindMapper</PackageId>
-	  <Version>3.1.0</Version>
+	  <Version>3.2.0</Version>
 	  <Authors>AmirHossein Kaveh</Authors>
 	  <Company>ITSA</Company>
 	  <Description>Custom mapper of object</Description>
