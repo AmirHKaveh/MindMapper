@@ -1,6 +1,6 @@
 # MindMapper
 
-🚀 A lightweight, high-performance object mapping library for .NET Core
+object mapping library for .NET Core
 
 Easily map objects, lists, and collections with support for reverse mapping, property ignoring, and custom value resolvers. Designed for simplicity and performance.
 
@@ -35,7 +35,7 @@ Or via Package Manager:
         
         profile.CreateMap<Model, ResponseModel>(x =>
          {
-             x.ForMember((dest, val) => dest.CreateDate = val, src => src.CreateDate.ToShamsi());
+             x.ForMember(dest => dest.CreateDate, src => src.CreateDate.ToShamsi());
          });
       }
    }
