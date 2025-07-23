@@ -2,7 +2,7 @@
 
 object mapping library for .NET Core
 
-Easily map objects, lists, and collections with support for reverse mapping, property ignoring, and custom value resolvers. Designed for simplicity and performance.
+Easily map objects, lists, and collections with support for reverse mapping, property ignoring, and custom value resolvers. Designed for simplicity.
 
 ## Installation
 Install via NuGet:
