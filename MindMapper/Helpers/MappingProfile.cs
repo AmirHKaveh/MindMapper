@@ -2,11 +2,11 @@
 
 namespace MindMapper
 {
-    public class MappingProfile:IMappingProfile
+    public class MappingProfile : IMappingProfile
     {
         public readonly Dictionary<(Type source, Type destination), Action<object, object>> _mappings = new();
-        public readonly Dictionary<(Type source, Type destination), Action<object, object>> _typedMappings = new();
-        public readonly ConcurrentDictionary<(Type, Type), Delegate> _mappingActions = new();
+        private readonly Dictionary<(Type source, Type destination), Action<object, object>> _typedMappings = new();
+        private readonly ConcurrentDictionary<(Type, Type), Delegate> _mappingActions = new();
 
         public MappingConfig<TSource, TDestination> CreateMap<TSource, TDestination>(Action<MappingConfig<TSource, TDestination>> config = null)
         {
@@ -17,11 +17,10 @@ namespace MindMapper
             var mappingAction = mapConfig.CompileMappingAction();
             var untypedAction = (Action<object, object>)((src, dest) => mappingAction((TSource)src, (TDestination)dest));
 
-            // Register in all dictionaries
+            // Register both typed and untyped versions
             var key = (typeof(TSource), typeof(TDestination));
             _mappings[key] = untypedAction;
             _typedMappings[key] = untypedAction;
-            _mappingActions[key] = mappingAction;
 
             return mapConfig;
         }

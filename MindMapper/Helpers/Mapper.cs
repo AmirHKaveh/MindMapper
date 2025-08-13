@@ -21,28 +21,32 @@ namespace MindMapper
             var sourceType = source.GetType();
             var typePair = new TypePair(sourceType, typeof(TDestination));
 
+            // Check for same type mapping
+            if (sourceType == typeof(TDestination))
+            {
+                return (TDestination)source;
+            }
+
             var mappingAction = _mappingCache.GetOrAdd(typePair, pair =>
             {
-                // Create a strongly-typed generic method via reflection
-                var method = GetType().GetMethod(nameof(CreateMappingDelegate),
-                    BindingFlags.NonPublic | BindingFlags.Instance)
-                    .MakeGenericMethod(pair.SourceType, pair.DestinationType);
+                // First try to get from profile
+                if (_profile.TryGetMapping(pair.SourceType, pair.DestinationType, out var profileAction))
+                {
+                    return profileAction;
+                }
 
-                return (Delegate)method.Invoke(this, null);
+                // If no profile mapping, try auto-mapping for compatible types
+                if (TryCreateAutoMapper(pair.SourceType, pair.DestinationType, out var autoMapper))
+                {
+                    return autoMapper;
+                }
+
+                throw new InvalidOperationException($"No mapping found from {pair.SourceType} to {pair.DestinationType}");
             });
 
             var destination = new TDestination();
             mappingAction.DynamicInvoke(source, destination);
             return destination;
-        }
-
-        private Action<TSource, TDestination> CreateMappingDelegate<TSource, TDestination>()
-        {
-            if (!_profile.TryGetMapping<TSource, TDestination>(out var action))
-            {
-                throw new InvalidOperationException($"No mapping found from {typeof(TSource)} to {typeof(TDestination)}");
-            }
-            return action;
         }
 
         public List<TDestination> Map<TDestination>(IEnumerable<object> sources) where TDestination : new()
@@ -86,6 +90,15 @@ namespace MindMapper
             return list;
         }
 
+        public TDestination Map<TSource, TDestination>(TSource source, TDestination destination)
+        {
+            if (source == null) throw new ArgumentNullException(nameof(source));
+            if (destination == null) throw new ArgumentNullException(nameof(destination));
+
+            var mappingAction = GetCachedMappingFunction<TSource, TDestination>();
+            mappingAction(source, destination);
+            return destination;
+        }
         private Action<TSource, TDestination> GetCachedMappingFunction<TSource, TDestination>()
         {
             var typePair = new TypePair(typeof(TSource), typeof(TDestination));
@@ -101,15 +114,20 @@ namespace MindMapper
 
             return (Action<TSource, TDestination>)mappingAction;
         }
-
-        public TDestination Map<TSource, TDestination>(TSource source, TDestination destination)
+        private bool TryCreateAutoMapper(Type sourceType, Type destinationType, out Delegate mapper)
         {
-            if (source == null) throw new ArgumentNullException(nameof(source));
-            if (destination == null) throw new ArgumentNullException(nameof(destination));
+            // Simple case - same type
+            if (sourceType == destinationType)
+            {
+                mapper = (Action<object, object>)((src, dest) => { });
+                return true;
+            }
 
-            var mappingAction = GetCachedMappingFunction<TSource, TDestination>();
-            mappingAction(source, destination);
-            return destination;
+            // TODO: Add more sophisticated auto-mapping logic here if needed
+            // For example, property-by-property copying for similar types
+
+            mapper = null;
+            return false;
         }
 
         private readonly struct TypePair : IEquatable<TypePair>
