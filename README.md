@@ -33,10 +33,8 @@ Or via Package Manager:
      {
          var profile = new CustomMappingProfile();
         
-        profile.CreateMap<Model, ResponseModel>(x =>
-         {
-             x.ForMember(dest => dest.CreateDate, src => src.CreateDate.ToShamsi());
-         });
+        profile.CreateMap<Model, ResponseModel>()
+             .ForMember(dest => dest.CreateDate, src => src.CreateDate.ToShamsi());
       }
    }
    ```
