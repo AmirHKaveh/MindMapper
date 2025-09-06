@@ -6,9 +6,13 @@ namespace MindMapper
     public class MappingConfig<TSource, TDestination>
     {
         private readonly MappingProfile _profile;
-        private readonly List<Action<TSource, TDestination>> _propertyMappings = new();
+
+        // store property-specific mappings (can overwrite same property cleanly)
+        private readonly Dictionary<string, Action<TSource, TDestination>> _propertyMappings = new();
+
         private readonly HashSet<string> _ignoredProperties = new();
         private readonly HashSet<string> _explicitlyMappedProperties = new();
+
         private bool _autoMapCalled = false;
 
         public MappingConfig(MappingProfile profile)
@@ -17,10 +21,10 @@ namespace MindMapper
         }
 
         public MappingConfig<TSource, TDestination> ForMember<TMember>(
-      Expression<Func<TDestination, TMember>> destProperty,
-      Func<TSource, TMember> sourceValue)
+            Expression<Func<TDestination, TMember>> destProperty,
+            Func<TSource, TMember> sourceValue)
         {
-            MemberExpression memberExpr = destProperty.Body switch
+            var memberExpr = destProperty.Body switch
             {
                 MemberExpression m => m,
                 UnaryExpression u when u.Operand is MemberExpression m => m,
@@ -28,29 +32,35 @@ namespace MindMapper
             };
 
             var destPropName = memberExpr.Member.Name;
+
+            if (_ignoredProperties.Contains(destPropName))
+                return this;
+
             _explicitlyMappedProperties.Add(destPropName);
 
-            _propertyMappings.Add((src, dest) =>
+            _propertyMappings[destPropName] = (src, dest) =>
             {
                 var value = sourceValue(src);
                 var prop = typeof(TDestination).GetProperty(destPropName);
                 prop?.SetValue(dest, value);
-            });
+            };
 
             return this;
         }
 
-
-        public MappingConfig<TSource, TDestination> Ignore<TProperty>(Expression<Func<TDestination, TProperty>> propertyExpression)
+        public MappingConfig<TSource, TDestination> Ignore<TProperty>(
+            Expression<Func<TDestination, TProperty>> propertyExpression)
         {
+            string propertyName;
+
             if (propertyExpression.Body is MemberExpression memberExpression)
             {
-                _ignoredProperties.Add(memberExpression.Member.Name);
+                propertyName = memberExpression.Member.Name;
             }
             else if (propertyExpression.Body is UnaryExpression unaryExpression &&
                      unaryExpression.Operand is MemberExpression unaryMemberExpression)
             {
-                _ignoredProperties.Add(unaryMemberExpression.Member.Name);
+                propertyName = unaryMemberExpression.Member.Name;
             }
             else
             {
@@ -59,59 +69,11 @@ namespace MindMapper
                     nameof(propertyExpression));
             }
 
+            _ignoredProperties.Add(propertyName);
+            _explicitlyMappedProperties.Remove(propertyName);
+            _propertyMappings.Remove(propertyName); // remove any mapping if it already exists
+
             return this;
-        }
-
-        public MappingConfig<TDestination, TSource> ReverseMap()
-        {
-            var reverseConfig = new MappingConfig<TDestination, TSource>(_profile);
-
-            foreach (var propName in _explicitlyMappedProperties)
-            {
-                var srcProp = typeof(TSource).GetProperty(propName);
-                var destProp = typeof(TDestination).GetProperty(propName);
-
-                if (srcProp == null || destProp == null || srcProp.PropertyType != destProp.PropertyType)
-                    continue;
-
-                var param = Expression.Parameter(typeof(TSource), "src");
-                var body = Expression.Convert(Expression.Property(param, srcProp), typeof(object));
-                var srcExpr = Expression.Lambda<Func<TSource, object>>(body, param);
-
-                Func<TDestination, object> destValueFunc = dest => destProp.GetValue(dest);
-
-                reverseConfig.ForMember(srcExpr, destValueFunc);
-            }
-
-            foreach (var ignored in _ignoredProperties)
-            {
-                var srcProp = typeof(TSource).GetProperty(ignored);
-                if (srcProp == null)
-                    continue;
-
-                var param = Expression.Parameter(typeof(TSource), "src");
-                var body = Expression.Property(param, srcProp);
-                var delegateType = typeof(Func<,>).MakeGenericType(typeof(TSource), srcProp.PropertyType);
-                var lambda = Expression.Lambda(delegateType, body, param);
-
-                // Get the generic Ignore<TProperty> method
-                var ignoreMethod = typeof(MappingConfig<TDestination, TSource>)
-                    .GetMethod("Ignore")
-                    ?.MakeGenericMethod(srcProp.PropertyType);
-
-                ignoreMethod?.Invoke(reverseConfig, new object[] { lambda });
-            }
-
-
-            _profile.CreateMap<TDestination, TSource>(cfg =>
-            {
-                foreach (var act in reverseConfig._propertyMappings)
-                {
-                    cfg._propertyMappings.Add(act);
-                }
-            });
-
-            return reverseConfig;
         }
 
         internal Action<TSource, TDestination> CompileMappingAction()
@@ -124,7 +86,7 @@ namespace MindMapper
 
             return (src, dest) =>
             {
-                foreach (var mapping in _propertyMappings)
+                foreach (var mapping in _propertyMappings.Values)
                 {
                     mapping(src, dest);
                 }
@@ -168,60 +130,84 @@ namespace MindMapper
             }
         }
 
-        private void AddPropertyMapping(PropertyInfo srcProp, PropertyInfo destProp)
+        public MappingConfig<TDestination, TSource> ReverseMap()
         {
-            var sourceParam = Expression.Parameter(typeof(TSource), "src");
-            var destParam = Expression.Parameter(typeof(TDestination), "dest");
+            var reverseConfig = new MappingConfig<TDestination, TSource>(_profile);
 
-            var sourcePropExpr = Expression.Property(sourceParam, srcProp);
-            var assignExpr = Expression.Assign(Expression.Property(destParam, destProp), sourcePropExpr);
+            // Carry over ignored properties
+            foreach (var ignored in _ignoredProperties)
+            {
+                reverseConfig._ignoredProperties.Add(ignored);
+                reverseConfig._propertyMappings.Remove(ignored);
+            }
 
-            var lambda = Expression.Lambda<Action<TSource, TDestination>>(assignExpr, sourceParam, destParam);
-            _propertyMappings.Add(lambda.Compile());
+            // Carry over explicit mappings (only if same-type properties exist)
+            foreach (var propName in _explicitlyMappedProperties)
+            {
+                var sourceProp = typeof(TSource).GetProperty(propName);
+                var destProp = typeof(TDestination).GetProperty(propName);
+
+                if (sourceProp == null || destProp == null)
+                    continue;
+
+                if (sourceProp.PropertyType == destProp.PropertyType)
+                {
+                    reverseConfig._propertyMappings[propName] = (src, dest) =>
+                    {
+                        var value = sourceProp.GetValue(dest); // notice: reverse direction
+                        destProp.SetValue(src, value);
+                    };
+
+                    reverseConfig._explicitlyMappedProperties.Add(propName);
+                }
+            }
+
+            // Compile and register reverse mapping
+            var mappingAction = reverseConfig.CompileMappingAction();
+            var untypedAction = (Action<object, object>)((src, dest) =>
+                mappingAction((TDestination)src, (TSource)dest));
+
+            var key = (typeof(TDestination), typeof(TSource));
+            _profile._mappings[key] = untypedAction;
+            _profile._mappingActions[key] = mappingAction;
+
+            return reverseConfig;
         }
 
 
+        private void AddPropertyMapping(PropertyInfo srcProp, PropertyInfo destProp)
+        {
+            _propertyMappings[destProp.Name] = (src, dest) =>
+            {
+                var value = srcProp.GetValue(src);
+                destProp.SetValue(dest, value);
+            };
+        }
+
         private void AddEnumToStringMapping(PropertyInfo srcProp, PropertyInfo destProp)
         {
-            var sourceParam = Expression.Parameter(typeof(TSource), "src");
-            var destParam = Expression.Parameter(typeof(TDestination), "dest");
-
-            var sourcePropExpr = Expression.Property(sourceParam, srcProp);
-            var toStringCall = Expression.Call(sourcePropExpr, "ToString", null);
-
-            var assignExpr = Expression.Assign(Expression.Property(destParam, destProp), toStringCall);
-
-            var lambda = Expression.Lambda<Action<TSource, TDestination>>(assignExpr, sourceParam, destParam);
-            _propertyMappings.Add(lambda.Compile());
+            _propertyMappings[destProp.Name] = (src, dest) =>
+            {
+                var value = srcProp.GetValue(src)?.ToString();
+                destProp.SetValue(dest, value);
+            };
         }
 
         private void AddStringToEnumMapping(PropertyInfo srcProp, PropertyInfo destProp)
         {
-            var sourceParam = Expression.Parameter(typeof(TSource), "src");
-            var destParam = Expression.Parameter(typeof(TDestination), "dest");
-
-            var sourcePropExpr = Expression.Property(sourceParam, srcProp);
-            var tempVar = Expression.Variable(destProp.PropertyType, "temp");
-
-            var tryParseCall = Expression.Call(
-                typeof(Enum),
-                "TryParse",
-                new[] { destProp.PropertyType },
-                Expression.Constant(destProp.PropertyType),
-                sourcePropExpr,
-                Expression.Constant(true),
-                tempVar);
-
-            var resultExpr = Expression.Condition(
-                tryParseCall,
-                tempVar,
-                Expression.Default(destProp.PropertyType));
-
-            var assignExpr = Expression.Assign(Expression.Property(destParam, destProp), resultExpr);
-            var block = Expression.Block(new[] { tempVar }, assignExpr);
-
-            var lambda = Expression.Lambda<Action<TSource, TDestination>>(block, sourceParam, destParam);
-            _propertyMappings.Add(lambda.Compile());
+            _propertyMappings[destProp.Name] = (src, dest) =>
+            {
+                var strValue = srcProp.GetValue(src) as string;
+                if (Enum.TryParse(destProp.PropertyType, strValue, true, out var enumValue))
+                {
+                    destProp.SetValue(dest, enumValue);
+                }
+                else
+                {
+                    destProp.SetValue(dest, Activator.CreateInstance(destProp.PropertyType));
+                }
+            };
         }
     }
+
 }
